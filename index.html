@@ -1,0 +1,1161 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Paper Notes</title>
+<!-- Suppress flashes before CSS/JS load — no document.write, just html attributes -->
+<script>
+(function(){
+  try{
+    // Hide welcome overlay before paint if already dismissed
+    if(localStorage.getItem('paper_notes_welcomed')==='true'){
+      document.documentElement.setAttribute('data-hide-welcome','1');
+    }
+    // Apply dark background before paint to avoid light flash
+    var dm=localStorage.getItem('paper_notes_darkmode');
+    if(dm===null){
+      var d=JSON.parse(localStorage.getItem('paper_notes_v14')||'null');
+      if(d&&d.darkMode) dm='1';
+    }
+    // First ever visit — check OS preference
+    if(dm===null && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches){
+      dm='1';
+    }
+    if(dm==='1') document.documentElement.setAttribute('data-dm','1');
+  }catch(e){}
+})();
+</script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+/* Instant dark background before JS applies theme — prevents light flash */
+html[data-dm='1'] body { background: #16181e !important; }
+html[data-dm='1'] #tabs-bar { background: #16181e !important; }
+/* Hide welcome overlay before paint if already dismissed */
+html[data-hide-welcome='1'] #welcome-overlay { display: none !important; }
+body { font-family: 'Georgia', serif; background: #f5f0e8; min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; font-size: 16px; }
+
+/* ── Tabs ── */
+#tabs-bar { display: flex; align-items: flex-end; gap: 2px; padding: 10px 10px 0; background: #f5f0e8; flex-wrap: wrap; flex-shrink: 0; min-height: 40px; }
+.tab { display: flex; align-items: center; padding: 6px 9px 6px 13px; border: 1px solid #c8b89a; border-bottom: none; border-radius: 6px 6px 0 0; font-size: 14px; cursor: pointer; max-width: 170px; user-select: none; min-width: 0; }
+.tab.active { padding-top: 9px; padding-bottom: 9px; font-weight: 500; }
+.tab-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+.tab .x { flex-shrink: 0; margin-left: 7px; opacity: 0.5; font-size: 12px; width: 15px; text-align: center; line-height: 1; }
+.tab:hover .x, .tab.active .x { opacity: 0.8; }
+.tab:not(.active) { filter: brightness(0.92) saturate(0.8); }
+#new-tab-btn { padding: 6px 12px; border: 1px dashed #c8b89a; border-bottom: none; border-radius: 6px 6px 0 0; background: transparent; color: #a08060; font-size: 20px; cursor: pointer; line-height: 1; flex-shrink: 0; }
+#new-tab-btn:hover { background: rgba(0,0,0,0.06); }
+
+/* ── Toolbar — uniform height via line-height ── */
+#toolbar { display: flex; align-items: center; gap: 9px; padding: 8px 16px; border-bottom: 1px solid var(--theme-border,#ddd3be); flex-shrink: 0; flex-wrap: wrap; background: var(--theme-paper,#faf6ee); transition: background 0.2s, border-color 0.2s; }
+#toolbar.hidden { display: none; }
+#note-title { flex: 1; min-width: 80px; border: none; background: transparent; font-family: 'Georgia', serif; font-size: 16px; color: var(--theme-ink,#3a2e1e); outline: none; padding: 2px 0; border-bottom: 1px dashed var(--theme-border,#c8b89a); }
+#note-title::placeholder { color: var(--theme-placeholder,#b8a888); }
+/* All toolbar buttons share identical box model */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  height: 28px; padding: 0 11px;
+  border: 1px solid var(--theme-border,#c8b89a); border-radius: 4px;
+  background: var(--theme-btn,#f0e8d8); color: var(--theme-ink,#6a5a40);
+  font-size: 13px; cursor: pointer; white-space: nowrap;
+  font-family: 'Georgia', serif; line-height: 1;
+}
+.btn:hover { filter: brightness(0.95); }
+.btn:active { filter: brightness(0.9); }
+#mode-toggle.reading { background: var(--theme-ink,#3a2e1e); color: var(--theme-paper,#faf6ee); }
+
+/* ── Editor ── */
+#editor-wrapper { flex: 1; position: relative; overflow: hidden; background: var(--theme-paper,#faf6ee); min-height: 300px; transition: background 0.2s; }
+#rule-bg { position: absolute; top: 0; left: 0; right: 0; bottom: 0; pointer-events: none; z-index: 0; overflow: hidden; }
+#rule-canvas { position: absolute; top: 0; left: 0; display: block; }
+#ln-canvas  { position: absolute; top: 0; left: 0; display: none; pointer-events: none; z-index: 2; }
+
+/* Hover layer — pointer-events:none on container, strips handle themselves */
+#margin-hover-layer { position: absolute; top: 0; left: 0; width: 50px; bottom: 0; z-index: 4; overflow: hidden; pointer-events: none; }
+.margin-strip { position: absolute; left: 0; width: 50px; pointer-events: all; cursor: pointer; }
+
+/* The + button — position set via JS to mouse event coords */
+#margin-plus {
+  position: fixed; z-index: 20;
+  width: 18px; height: 18px; border-radius: 50%;
+  border: 1px solid var(--theme-border,#c8b89a);
+  background: var(--theme-btn,#f0e8d8);
+  color: var(--theme-muted,#a09070);
+  font-size: 14px; line-height: 1;
+  display: none; align-items: center; justify-content: center;
+  cursor: pointer; user-select: none;
+  transition: background 0.1s, color 0.1s;
+}
+#margin-plus:hover { background: var(--theme-btn,#f0e8d8); color: var(--theme-muted,#a09070); }
+#margin-plus.visible { display: flex; }
+
+#raw-input {
+  position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+  padding: 7px 22px 80px 52px;
+  font-family: 'Georgia', serif; font-size: 16px; line-height: 28px;
+  color: var(--theme-ink,#2a1e10); background: transparent;
+  border: none; outline: none; resize: none; z-index: 1; overflow-y: auto;
+  -webkit-overflow-scrolling: touch; transition: color 0.2s;
+}
+#raw-input::placeholder { color: var(--theme-placeholder,#c0a880); font-style: italic; }
+
+#preview {
+  position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+  padding: 7px 22px 80px 52px;
+  font-family: 'Georgia', serif; font-size: 16px; line-height: 28px;
+  color: var(--theme-ink,#2a1e10); z-index: 1; overflow-y: auto; display: none;
+  -webkit-overflow-scrolling: touch; transition: color 0.2s;
+}
+#preview h1 { font-size: 24px; font-weight: 600; line-height: 1.35; margin: 6px 0 2px; }
+#preview h2 { font-size: 20px; font-weight: 600; line-height: 1.35; margin: 6px 0 2px; }
+#preview h3 { font-size: 17px; font-weight: 600; margin: 4px 0 2px; }
+#preview p { margin: 0 0 4px; }
+#preview strong { font-weight: 700; }
+#preview em { font-style: italic; }
+#preview code { font-family: monospace; background: var(--theme-btn,#ede5d4); padding: 0 4px; border-radius: 3px; font-size: 14px; }
+#preview pre { background: var(--theme-btn,#ede5d4); padding: 8px 12px; border-radius: 4px; font-family: monospace; font-size: 14px; line-height: 20px; margin: 6px 0; overflow-x: auto; white-space: pre; }
+#preview blockquote { border-left: 3px solid var(--theme-border,#c8b89a); margin: 6px 0; padding-left: 12px; color: var(--theme-muted,#7a6a55); font-style: italic; }
+#preview ul, #preview ol { padding-left: 22px; margin: 4px 0; }
+#preview li { margin: 2px 0; }
+#preview hr { border: none; border-top: 1px dashed var(--theme-border,#c8b89a); margin: 10px 0; }
+#preview a { color: var(--theme-accent,#5a7a9a); }
+#preview del { text-decoration: line-through; color: var(--theme-muted,#a09080); }
+#preview img { max-width: 100%; border-radius: 4px; margin: 4px 0; display: block; }
+/* Table grid lines in read mode */
+#preview table { border-collapse: collapse; margin: 8px 0; width: auto; max-width: 100%; font-size: 14px; }
+#preview th { background: var(--theme-btn,#f0e8d8); font-weight: 600; }
+#preview th, #preview td { border: 1px solid var(--theme-border,#c8b89a); padding: 6px 10px; text-align: left; vertical-align: top; }
+#preview tr:nth-child(even) td { background: rgba(0,0,0,0.02); }
+
+/* Inline image placeholder in editor */
+.img-placeholder {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--theme-btn,#f0e8d8); border: 1px solid var(--theme-border,#c8b89a);
+  border-radius: 4px; padding: 3px 8px; font-size: 12px;
+  color: var(--theme-muted,#a09070); font-style: italic; cursor: default;
+  user-select: none; white-space: nowrap; max-width: 100%;
+}
+.img-placeholder .rm-img { cursor: pointer; opacity: 0.6; font-style: normal; margin-left: 4px; }
+.img-placeholder .rm-img:hover { opacity: 1; color: #c0392b; }
+
+/* ── Empty state ── */
+#empty-state { position: absolute; top: 0; left: 0; right: 0; bottom: 0; display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 2; gap: 20px; background: var(--empty-bg,#e8dfd0); transition: background 0.2s; }
+.empty-btn { display: flex; flex-direction: column; align-items: center; gap: 8px; cursor: pointer; padding: 14px 24px; border-radius: 8px; transition: background 0.15s; }
+.empty-btn:hover { background: rgba(0,0,0,0.05); }
+.empty-btn .circle { width: 54px; height: 54px; border: 2px solid var(--theme-border,#b8a888); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 26px; color: var(--theme-muted,#a09070); line-height: 1; }
+.empty-btn p { font-size: 14px; color: var(--theme-muted,#a09070); font-style: italic; }
+.empty-divider { width: 1px; height: 48px; background: var(--theme-border,#c8b89a); opacity: 0.5; }
+
+/* ── Status bar ── */
+#status { display: flex; align-items: center; font-size: 12px; color: var(--theme-muted,#a09070); padding: 5px 16px; background: var(--theme-btn,#f0e8d8); border-top: 1px solid var(--theme-border,#ddd3be); flex-shrink: 0; font-style: italic; gap: 8px; transition: background 0.2s; }
+#word-count { flex: 1; }
+#zoom-controls { display: flex; align-items: center; gap: 4px; font-style: normal; }
+#zoom-controls button { width: 22px; height: 22px; border: 1px solid var(--theme-border,#c8b89a); border-radius: 3px; background: var(--theme-paper,#faf6ee); color: var(--theme-ink,#6a5a40); font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; font-family: 'Georgia', serif; }
+#zoom-controls button:hover { filter: brightness(0.93); }
+#zoom-label { font-size: 12px; min-width: 34px; text-align: center; font-style: italic; }
+#save-hint { flex: 1; text-align: right; }
+#storage-indicator { font-size: 11px; color: var(--theme-muted,#a09070); font-style: italic; }
+#storage-indicator.warn { color: #c0392b; }
+
+/* ── Settings panel ── */
+#colour-panel { position: fixed; z-index: 50; background: var(--theme-paper,#faf6ee); border: 1px solid var(--theme-border,#c8b89a); border-radius: 8px; padding: 14px; box-shadow: 0 6px 24px rgba(0,0,0,0.15); display: none; flex-direction: column; gap: 12px; width: 216px; }
+#colour-panel.open { display: flex; }
+#colour-panel h4 { font-size: 13px; color: var(--theme-ink,#3a2e1e); font-weight: 600; }
+.swatch-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.swatch { width: 28px; height: 28px; border-radius: 50%; cursor: pointer; border: 2px solid transparent; transition: transform 0.1s; flex-shrink: 0; }
+.swatch:hover { transform: scale(1.15); }
+.swatch.selected { box-shadow: 0 0 0 2px var(--theme-ink,#3a2e1e); }
+.panel-row { display: flex; align-items: center; justify-content: space-between; padding-top: 4px; border-top: 1px dashed var(--theme-border,#c8b89a); }
+.panel-label { font-size: 12px; color: var(--theme-ink,#3a2e1e); font-style: italic; }
+.toggle-track { width: 34px; height: 18px; border-radius: 9px; background: var(--theme-border,#c8b89a); position: relative; cursor: pointer; transition: background 0.2s; flex-shrink: 0; }
+.toggle-track.on { background: var(--theme-ink,#3a2e1e); }
+.toggle-thumb { position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--theme-paper,#faf6ee); transition: left 0.2s; }
+.toggle-track.on .toggle-thumb { left: 18px; }
+.panel-small-btn { width: 100%; padding: 6px; border: 1px solid var(--theme-border,#c8b89a); border-radius: 4px; background: var(--theme-btn,#f0e8d8); color: var(--theme-ink,#6a5a40); font-size: 12px; cursor: pointer; font-family: 'Georgia', serif; font-style: italic; text-align: center; }
+.panel-small-btn:hover { filter: brightness(0.95); }
+
+/* ── Cheat sheet ── */
+#cheat-overlay { position: fixed; inset: 0; z-index: 200; background: rgba(0,0,0,0.4); display: none; align-items: center; justify-content: center; }
+#cheat-overlay.open { display: flex; }
+#cheat-card { background: var(--theme-paper,#faf6ee); border: 1px solid var(--theme-border,#c8b89a); border-radius: 10px; padding: 24px 26px; width: min(420px,92vw); max-height: 85vh; overflow-y: auto; box-shadow: 0 12px 48px rgba(0,0,0,0.18); display: flex; flex-direction: column; gap: 14px; }
+#cheat-card h3 { font-size: 16px; color: var(--theme-ink,#2a1e10); font-weight: 600; border-bottom: 1px dashed var(--theme-border,#c8b89a); padding-bottom: 8px; }
+.cheat-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.cheat-table tr { border-bottom: 1px solid var(--theme-border,#c8b89a); }
+.cheat-table tr:last-child { border-bottom: none; }
+.cheat-table td { padding: 6px 4px; color: var(--theme-ink,#2a1e10); vertical-align: top; }
+.cheat-table td:first-child { font-family: monospace; font-size: 12px; color: var(--theme-muted,#7a6a55); white-space: nowrap; padding-right: 14px; width: 45%; }
+.cheat-close { align-self: flex-end; padding: 6px 18px; background: var(--theme-ink,#2a1e10); color: var(--theme-paper,#faf6ee); border: none; border-radius: 5px; font-family: 'Georgia', serif; font-size: 13px; cursor: pointer; }
+.cheat-close:hover { filter: brightness(1.2); }
+
+/* ── Insert popup ── */
+#insert-popup { position: fixed; z-index: 60; background: var(--theme-paper,#faf6ee); border: 1px solid var(--theme-border,#c8b89a); border-radius: 8px; padding: 6px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); display: none; flex-direction: column; gap: 2px; min-width: 130px; }
+#insert-popup.open { display: flex; }
+.insert-opt { padding: 7px 12px; border-radius: 5px; cursor: pointer; font-family: 'Georgia', serif; font-size: 13px; color: var(--theme-ink,#3a2e1e); background: transparent; border: none; text-align: left; width: 100%; }
+.insert-opt:hover { background: var(--theme-btn,#f0e8d8); }
+
+/* ── Shared dialog ── */
+.dialog-overlay { position: fixed; inset: 0; z-index: 300; background: rgba(0,0,0,0.4); display: none; align-items: center; justify-content: center; }
+.dialog-overlay.open { display: flex; }
+.dialog-card { background: var(--theme-paper,#faf6ee); border: 1px solid var(--theme-border,#c8b89a); border-radius: 10px; padding: 24px; box-shadow: 0 12px 48px rgba(0,0,0,0.18); display: flex; flex-direction: column; gap: 14px; }
+.dialog-card h3 { font-size: 15px; color: var(--theme-ink,#2a1e10); font-weight: 600; }
+.dialog-section { display: flex; flex-direction: column; gap: 6px; }
+.dialog-section label { font-size: 12px; color: var(--theme-muted,#7a6a55); font-style: italic; }
+.dialog-input { width: 100%; padding: 6px 8px; font-family: 'Georgia', serif; font-size: 13px; border: 1px solid var(--theme-border,#c8b89a); border-radius: 4px; background: var(--theme-btn,#f0e8d8); color: var(--theme-ink,#2a1e10); outline: none; }
+.dialog-input:focus { border-color: var(--theme-muted,#a09070); }
+.dialog-divider { border: none; border-top: 1px dashed var(--theme-border,#c8b89a); }
+.dialog-footer { display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px; }
+.dialog-cancel { padding: 6px 14px; border: 1px solid var(--theme-border,#c8b89a); border-radius: 4px; background: var(--theme-btn,#f0e8d8); color: var(--theme-ink,#6a5a40); font-family: 'Georgia', serif; font-size: 13px; cursor: pointer; }
+.dialog-ok { padding: 6px 14px; border: none; border-radius: 4px; background: var(--theme-ink,#2a1e10); color: var(--theme-paper,#faf6ee); font-family: 'Georgia', serif; font-size: 13px; cursor: pointer; }
+.dialog-ok:hover { filter: brightness(1.15); }
+.dialog-cancel:hover { filter: brightness(0.95); }
+
+/* Image dialog */
+#img-drop { border: 2px dashed var(--theme-border,#c8b89a); border-radius: 6px; padding: 16px; text-align: center; font-size: 13px; color: var(--theme-muted,#a09070); font-style: italic; cursor: pointer; transition: background 0.15s; }
+#img-drop:hover, #img-drop.drag-over { background: var(--theme-btn,#f0e8d8); }
+#img-preview { max-width: 100%; max-height: 120px; object-fit: contain; border-radius: 4px; display: none; margin-top: 4px; }
+
+/* Table dialog */
+.table-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 3px; }
+.tg-cell { width: 20px; height: 20px; border-radius: 2px; border: 1px solid var(--theme-border,#c8b89a); background: var(--theme-btn,#f0e8d8); cursor: pointer; transition: background 0.1s; }
+.tg-cell.lit { background: var(--theme-ink,#2a1e10); border-color: var(--theme-ink,#2a1e10); }
+#table-size-label { font-size: 12px; color: var(--theme-muted,#7a6a55); font-style: italic; text-align: center; min-height: 16px; }
+.table-manual-row { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--theme-ink,#3a2e1e); }
+.table-num-input { width: 50px; padding: 4px 6px; font-family: 'Georgia', serif; font-size: 13px; border: 1px solid var(--theme-border,#c8b89a); border-radius: 4px; background: var(--theme-btn,#f0e8d8); color: var(--theme-ink,#2a1e10); outline: none; text-align: center; }
+
+/* ── Welcome ── */
+#welcome-overlay { position: fixed; inset: 0; z-index: 100; background: rgba(42,30,16,0.45); display: flex; align-items: center; justify-content: center; opacity: 1; transition: opacity 0.3s; }
+#welcome-overlay.hide { opacity: 0; pointer-events: none; }
+#welcome-card { background: #faf6ee; border: 1px solid #c8b89a; border-radius: 10px; padding: 32px 30px 24px; width: min(380px,90vw); box-shadow: 0 12px 48px rgba(42,30,16,0.18); display: flex; flex-direction: column; gap: 16px; }
+#welcome-card .pen { font-size: 36px; text-align: center; line-height: 1; }
+#welcome-card h2 { font-size: 20px; font-weight: 600; color: #2a1e10; text-align: center; }
+#welcome-card p { font-size: 14px; color: #6a5a40; line-height: 1.7; text-align: center; }
+#welcome-card .divider { border: none; border-top: 1px dashed #c8b89a; }
+#welcome-card .tips { font-size: 13px; color: #7a6a50; line-height: 1.8; padding-left: 2px; }
+#welcome-card .tips li { list-style: none; }
+#welcome-card .tips li::before { content: '✎ '; }
+#welcome-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+#welcome-dsa { display: flex; align-items: center; gap: 7px; font-size: 12px; color: #a09070; cursor: pointer; user-select: none; font-style: italic; }
+#welcome-dsa input { width: 14px; height: 14px; cursor: pointer; accent-color: #2a1e10; flex-shrink: 0; }
+#welcome-ok { padding: 7px 22px; background: #2a1e10; color: #f5f0e8; border: none; border-radius: 5px; font-family: 'Georgia', serif; font-size: 14px; cursor: pointer; }
+#welcome-ok:hover { background: #3a2e1e; }
+
+/* Print / PDF styles */
+@media print {
+  #tabs-bar, #toolbar, #status, #rule-bg, #ln-canvas, #margin-hover-layer, #margin-plus, #raw-input, #empty-state,
+  #welcome-overlay, #cheat-overlay, #insert-popup, .dialog-overlay, #colour-panel { display: none !important; }
+  body { background: white; }
+  #editor-wrapper { overflow: visible; position: static; }
+  #preview { display: block !important; position: static; overflow: visible; padding: 20mm 20mm; font-size: 11pt; line-height: 1.6; color: #000; }
+  #preview h1 { font-size: 20pt; } #preview h2 { font-size: 16pt; } #preview h3 { font-size: 13pt; }
+  #preview table { border-collapse: collapse; } #preview th, #preview td { border: 1px solid #aaa; padding: 4px 8px; }
+  #preview a { color: #000; text-decoration: underline; }
+}
+
+input[type="file"] { display: none; }
+</style>
+</head>
+<body>
+
+<!-- Welcome -->
+<div id="welcome-overlay">
+  <div id="welcome-card">
+    <div class="pen">✒️</div>
+    <h2>Welcome to Paper Notes</h2>
+    <p></p>
+    <hr class="divider">
+    <ul class="tips">
+      <li>Write in <strong>Markdown</strong>. Switch to Read mode to see it rendered</li>
+      <li>Check <strong>⚙</strong> for additional features and customization</li>
+      <li>Click in the margin to add <strong>tables</strong> and <strong>pictures</strong>
+      <li>Notes are <strong>auto-saved</strong> in your browser</li>
+      <li>Use <strong>Save</strong> to download a file to keep</li>
+    </ul>
+    <div id="welcome-footer">
+      <label id="welcome-dsa"><input type="checkbox" id="dsa-check" checked> Don't show this again</label>
+      <button id="welcome-ok">Let's go →</button>
+    </div>
+  </div>
+</div>
+
+<!-- Cheat sheet -->
+<div id="cheat-overlay">
+  <div id="cheat-card">
+    <h3>Markdown quick reference</h3>
+    <table class="cheat-table">
+      <tr><td># Heading 1</td><td>Large heading</td></tr>
+      <tr><td>## Heading 2</td><td>Medium heading</td></tr>
+      <tr><td>### Heading 3</td><td>Small heading</td></tr>
+      <tr><td>**bold**</td><td><strong>Bold text</strong></td></tr>
+      <tr><td>*italic*</td><td><em>Italic text</em></td></tr>
+      <tr><td>~~strikethrough~~</td><td><del>Strikethrough</del></td></tr>
+      <tr><td>`inline code`</td><td>Inline code</td></tr>
+      <tr><td>```<br>code block<br>```</td><td>Code block</td></tr>
+      <tr><td>&gt; blockquote</td><td>Indented quote</td></tr>
+      <tr><td>- item</td><td>Bullet list</td></tr>
+      <tr><td>1. item</td><td>Numbered list</td></tr>
+      <tr><td>[text](url)</td><td>Hyperlink</td></tr>
+      <tr><td>![alt](url)</td><td>Image</td></tr>
+      <tr><td>---</td><td>Horizontal rule</td></tr>
+    </table>
+    <button class="cheat-close" id="cheat-close">Close</button>
+  </div>
+</div>
+
+<!-- Insert popup -->
+<div id="insert-popup">
+  <button class="insert-opt" id="insert-image-opt">🖼 Image</button>
+  <button class="insert-opt" id="insert-table-opt">⊞ Table</button>
+</div>
+
+<!-- Image dialog -->
+<div class="dialog-overlay" id="img-overlay">
+  <div class="dialog-card" style="width:min(380px,92vw)">
+    <h3>Insert image</h3>
+    <div class="dialog-section">
+      <label>Paste a URL</label>
+      <input class="dialog-input" id="img-url" type="text" placeholder="https://example.com/photo.jpg">
+    </div>
+    <hr class="dialog-divider">
+    <div class="dialog-section">
+      <label>Or upload / drag a local file</label>
+      <div id="img-drop">Click or drag &amp; drop an image here<input type="file" id="img-file-input" accept="image/*"></div>
+      <img id="img-preview" alt="preview">
+    </div>
+    <div class="dialog-section">
+      <label>Alt text (optional)</label>
+      <input class="dialog-input" id="img-alt" type="text" placeholder="A description of the image">
+    </div>
+    <div class="dialog-footer">
+      <button class="dialog-cancel" id="img-cancel">Cancel</button>
+      <button class="dialog-ok" id="img-ok">Insert</button>
+    </div>
+  </div>
+</div>
+
+<!-- Table dialog -->
+<div class="dialog-overlay" id="table-overlay">
+  <div class="dialog-card" style="width:min(320px,92vw)">
+    <h3>Insert table</h3>
+    <div class="table-grid" id="table-grid"></div>
+    <div id="table-size-label">Hover grid to pick size</div>
+    <div class="table-manual-row">
+      <span>Columns</span><input class="table-num-input" id="table-cols" type="number" min="1" max="20" value="3">
+      <span>Rows</span><input class="table-num-input" id="table-rows" type="number" min="1" max="50" value="3">
+    </div>
+    <div class="dialog-footer">
+      <button class="dialog-cancel" id="table-cancel">Cancel</button>
+      <button class="dialog-ok" id="table-ok">Insert</button>
+    </div>
+  </div>
+</div>
+
+<!-- Storage full popup -->
+<div class="dialog-overlay" id="storage-full-overlay">
+  <div class="dialog-card" style="width:min(360px,92vw)">
+    <h3>Storage full</h3>
+    <p style="font-size:14px;color:var(--theme-muted,#7a6a55);line-height:1.6;">
+      Your notes have reached the browser's storage limit (~5MB).
+      Autosave has been paused.<br><br>
+      To resume saving, close one or more tabs to free up space.
+      A warning will stay visible in the bottom bar until storage is below the limit.
+    </p>
+    <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--theme-muted,#a09070);font-style:italic;cursor:pointer;user-select:none;">
+      <input type="checkbox" id="storage-warn-dismiss" style="width:14px;height:14px;accent-color:var(--theme-ink,#2a1e10);flex-shrink:0;">
+      Don't show this popup again
+    </label>
+    <div class="dialog-footer">
+      <button class="dialog-ok" id="storage-full-ok">OK</button>
+    </div>
+  </div>
+</div>
+
+<div id="tabs-bar"><button id="new-tab-btn">+</button></div>
+
+<div id="toolbar" class="hidden">
+  <input id="note-title" type="text" placeholder="Note title…" autocomplete="off">
+  <button id="mode-toggle" class="btn">Read</button>
+  <button class="btn" id="colour-btn">⚙</button>
+  <button class="btn" id="save-btn">Save</button>
+  <button class="btn" id="load-btn">Load</button>
+</div>
+
+<div id="colour-panel">
+  <h4>Note colour</h4>
+  <div class="swatch-row" id="swatch-row"></div>
+  <div class="panel-row">
+    <span class="panel-label">Dark mode</span>
+    <div class="toggle-track" id="dm-toggle"><div class="toggle-thumb"></div></div>
+  </div>
+  <div class="panel-row">
+    <span class="panel-label">Line numbers</span>
+    <div class="toggle-track" id="ln-toggle"><div class="toggle-thumb"></div></div>
+  </div>
+  <button class="panel-small-btn" id="cheat-open">Markdown cheat sheet</button>
+  <button class="panel-small-btn" id="print-btn">Export to PDF…</button>
+</div>
+
+<div id="editor-wrapper">
+  <div id="rule-bg"><canvas id="rule-canvas"></canvas></div>
+  <canvas id="ln-canvas"></canvas>
+  <div id="margin-hover-layer"></div>
+  <div id="margin-plus">+</div>
+  <textarea id="raw-input" spellcheck="true" placeholder="Start writing…"></textarea>
+  <div id="preview"></div>
+  <div id="empty-state">
+    <div class="empty-btn" id="empty-new"><div class="circle">+</div><p>New note</p></div>
+    <div class="empty-divider"></div>
+    <div class="empty-btn" id="empty-load"><div class="circle" style="font-size:20px">↑</div><p>Load a file</p></div>
+  </div>
+</div>
+
+<div id="status">
+  <span id="word-count"></span>
+  <div id="zoom-controls">
+    <button id="zoom-out">−</button>
+    <span id="zoom-label">100%</span>
+    <button id="zoom-in">+</button>
+  </div>
+  <span id="storage-indicator"></span>
+  <span id="save-hint"></span>
+</div>
+
+<input type="file" id="file-input" accept=".md,.txt">
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
+<script>
+'use strict';
+marked.setOptions({ breaks: true, gfm: true });
+
+/* ══════════════════ WELCOME ══════════════════ */
+const WELCOME_KEY='paper_notes_welcomed';
+const welcomeEl=document.getElementById('welcome-overlay');
+// CSS already hides it via html[data-hide-welcome] if dismissed.
+// Here we handle the dismiss action.
+if(localStorage.getItem(WELCOME_KEY)==='true') welcomeEl.style.display='none';
+document.getElementById('welcome-ok').addEventListener('click',()=>{
+  if(document.getElementById('dsa-check').checked) localStorage.setItem(WELCOME_KEY,'true');
+  welcomeEl.classList.add('hide'); setTimeout(()=>welcomeEl.style.display='none',300);
+});
+
+/* ══════════════════ THEMES ══════════════════ */
+const THEMES=[
+  {name:'Parchment',paper:'#faf6ee',bg:'#f5f0e8',emptyBg:'#e8dfd0',btn:'#f0e8d8',border:'#c8b89a',ink:'#2a1e10',muted:'#a09070',placeholder:'#c0a880',accent:'#5a7a9a',tab:'#ede5d4',tabBorder:'#c8b89a',ruleH:'rgba(180,160,120,0.20)',ruleV:'rgba(180,130,100,0.25)',dit:[210,200,184]},
+  {name:'Slate',    paper:'#f0f2f5',bg:'#e4e8ed',emptyBg:'#d8dde4',btn:'#e0e5ec',border:'#a8b4c0',ink:'#1a2430',muted:'#6a7a88',placeholder:'#a0aebb',accent:'#3a6a9a',tab:'#d4dae2',tabBorder:'#a8b4c0',ruleH:'rgba(120,140,160,0.20)',ruleV:'rgba(100,130,160,0.25)',dit:[200,212,224]},
+  {name:'Sage',     paper:'#f4f7f2',bg:'#eaefe6',emptyBg:'#dde5d8',btn:'#e4ebe0',border:'#a8c0a0',ink:'#1e2e1a',muted:'#7a9070',placeholder:'#a0bc98',accent:'#4a7a5a',tab:'#d8e4d2',tabBorder:'#a8c0a0',ruleH:'rgba(120,160,120,0.20)',ruleV:'rgba(100,150,100,0.25)',dit:[196,220,196]},
+  {name:'Rose',     paper:'#fdf4f4',bg:'#f5eaea',emptyBg:'#ecdede',btn:'#f0e4e4',border:'#d0a8a8',ink:'#2e1a1a',muted:'#9a6a6a',placeholder:'#c8a0a0',accent:'#8a4a5a',tab:'#e8d4d4',tabBorder:'#d0a8a8',ruleH:'rgba(180,120,120,0.20)',ruleV:'rgba(180,100,100,0.25)',dit:[228,200,200]},
+  {name:'Dusk',     paper:'#f2f0f8',bg:'#e8e6f4',emptyBg:'#dddbe8',btn:'#e8e4f4',border:'#b0a8d0',ink:'#1e1a30',muted:'#7a6a98',placeholder:'#a89ec8',accent:'#5a4a8a',tab:'#dcd8ec',tabBorder:'#b0a8d0',ruleH:'rgba(140,120,180,0.20)',ruleV:'rgba(120,100,180,0.25)',dit:[208,200,232]},
+];
+function bdk(h,f){let r=parseInt(h.slice(1,3),16),g=parseInt(h.slice(3,5),16),b=parseInt(h.slice(5,7),16);r=Math.round(r*f+15*(1-f));g=Math.round(g*f+16*(1-f));b=Math.round(b*f+22*(1-f));return'#'+[r,g,b].map(x=>x.toString(16).padStart(2,'0')).join('');}
+function th2hex(rgb){return'#'+rgb.map(x=>Math.min(255,Math.max(0,Math.round(x))).toString(16).padStart(2,'0')).join('');}
+function getTheme(idx,dark){const th=THEMES[idx||0];if(!dark)return th;const[tr,tg,tb]=th.dit;return{...th,paper:bdk(th.paper,.18),bg:bdk(th.bg,.14),emptyBg:bdk(th.emptyBg,.14),btn:bdk(th.btn,.15),border:bdk(th.border,.30),ink:th2hex([tr,tg,tb]),muted:th2hex([tr*.65+28,tg*.65+28,tb*.65+28]),placeholder:th2hex([tr*.42+18,tg*.42+18,tb*.42+18]),ruleH:'rgba(255,255,255,0.07)',ruleV:'rgba(255,255,255,0.10)'};}
+
+/* ══════════════════ STATE ══════════════════ */
+const SK='paper_notes_v14';
+let tabs=[],activeId=null,nextId=0,isReading=false,zoom=100,darkMode=false,showLN=false;
+
+const rawInput    =document.getElementById('raw-input');
+const preview     =document.getElementById('preview');
+const titleInput  =document.getElementById('note-title');
+const tabsBar     =document.getElementById('tabs-bar');
+const newTabBtn   =document.getElementById('new-tab-btn');
+const modeToggle  =document.getElementById('mode-toggle');
+const wordCount   =document.getElementById('word-count');
+const saveHint    =document.getElementById('save-hint');
+const storageInd  =document.getElementById('storage-indicator');
+const fileInput   =document.getElementById('file-input');
+const ruleCanvas  =document.getElementById('rule-canvas');
+const ruleBg      =document.getElementById('rule-bg');
+const wrapper     =document.getElementById('editor-wrapper');
+const emptyState  =document.getElementById('empty-state');
+const toolbar     =document.getElementById('toolbar');
+const colourBtn   =document.getElementById('colour-btn');
+const colourPanel =document.getElementById('colour-panel');
+const swatchRow   =document.getElementById('swatch-row');
+const dmToggle    =document.getElementById('dm-toggle');
+const lnToggle    =document.getElementById('ln-toggle');
+const lnCanvas    =document.getElementById('ln-canvas');
+const hoverLayer  =document.getElementById('margin-hover-layer');
+const marginPlus  =document.getElementById('margin-plus');
+const insertPopup =document.getElementById('insert-popup');
+const hasFSA      ='showSaveFilePicker' in window;
+
+/* ══════════════════ STORAGE INDICATOR ══════════════════ */
+
+/* ══════════════════ SWATCHES / PANEL ══════════════════ */
+THEMES.forEach((th,i)=>{
+  const s=document.createElement('div');
+  s.className='swatch';s.title=th.name;s.style.background=th.paper;s.style.borderColor=th.border;
+  s.addEventListener('click',()=>{const t=getActive();if(!t)return;t.theme=i;applyTheme(i);renderTabs();persist();updSwatches(i);});
+  swatchRow.appendChild(s);
+});
+function updSwatches(idx){swatchRow.querySelectorAll('.swatch').forEach((s,i)=>s.classList.toggle('selected',i===idx));}
+
+colourBtn.addEventListener('click',e=>{
+  e.stopPropagation();
+  const open=colourPanel.classList.toggle('open');
+  if(open){
+    const r=colourBtn.getBoundingClientRect();
+    colourPanel.style.top=(r.bottom+6)+'px';
+    colourPanel.style.left=Math.min(r.left,window.innerWidth-226)+'px';
+    updSwatches(getActive()?.theme||0);
+    dmToggle.classList.toggle('on',darkMode);
+    lnToggle.classList.toggle('on',showLN);
+  }
+});
+/* Global click: close panels but NOT hide the + (strips handle that) */
+document.addEventListener('click',()=>{colourPanel.classList.remove('open');insertPopup.classList.remove('open');});
+colourPanel.addEventListener('click',e=>e.stopPropagation());
+insertPopup.addEventListener('click',e=>e.stopPropagation());
+
+dmToggle.addEventListener('click',()=>{darkMode=!darkMode;dmToggle.classList.toggle('on',darkMode);applyTheme(getActive()?.theme||0);persist();});
+lnToggle.addEventListener('click',()=>{showLN=!showLN;lnToggle.classList.toggle('on',showLN);updateLN();persist();});
+
+/* ══════════════════ CHEAT SHEET ══════════════════ */
+const cheatOv=document.getElementById('cheat-overlay');
+document.getElementById('cheat-open').addEventListener('click',()=>{colourPanel.classList.remove('open');cheatOv.classList.add('open');});
+document.getElementById('cheat-close').addEventListener('click',()=>cheatOv.classList.remove('open'));
+cheatOv.addEventListener('click',e=>{if(e.target===cheatOv)cheatOv.classList.remove('open');});
+
+/* ══════════════════ PDF EXPORT ══════════════════ */
+document.getElementById('print-btn').addEventListener('click',()=>{
+  colourPanel.classList.remove('open');
+  // Ensure preview is populated before printing
+  const t=getActive();
+  if(t) preview.innerHTML=renderMarkdown(t.raw||'');
+  // Force preview visible briefly for print, then restore
+  const wasReading=isReading;
+  if(!wasReading){preview.style.display='block';}
+  setTimeout(()=>{
+    window.print();
+    if(!wasReading){preview.style.display='none';}
+  },80);
+});
+
+/* ══════════════════ THEME ══════════════════ */
+function applyTheme(idx){
+  const th=getTheme(idx,darkMode),r=document.documentElement.style;
+  r.setProperty('--theme-paper',th.paper);r.setProperty('--theme-btn',th.btn);r.setProperty('--theme-border',th.border);
+  r.setProperty('--theme-ink',th.ink);r.setProperty('--theme-muted',th.muted);r.setProperty('--theme-placeholder',th.placeholder);
+  r.setProperty('--theme-accent',th.accent);r.setProperty('--empty-bg',th.emptyBg);
+  document.body.style.background=th.bg;tabsBar.style.background=th.bg;
+  // Clear the pre-paint dark attribute once JS is running theme properly
+  document.documentElement.removeAttribute('data-dm');
+  newTabBtn.style.borderColor=th.border;newTabBtn.style.color=th.muted;
+  if(!isReading){drawRules();updateLN();}
+}
+
+/* ══════════════════ METRICS ══════════════════ */
+const PAD_TOP=7;
+function lineH(){return 28*zoom/100;}
+
+/* ══════════════════ RULED LINES ══════════════════ */
+function drawRules(){
+  if(isReading){ruleCanvas.style.display='none';return;}
+  ruleCanvas.style.display='block';
+  const dpr=window.devicePixelRatio||1,W=wrapper.clientWidth;
+  const H=Math.max(wrapper.clientHeight,rawInput.scrollHeight+120);
+  ruleCanvas.style.width=W+'px';ruleCanvas.style.height=H+'px';
+  ruleCanvas.width=Math.round(W*dpr);ruleCanvas.height=Math.round(H*dpr);
+  const ctx=ruleCanvas.getContext('2d');ctx.scale(dpr,dpr);ctx.clearRect(0,0,W,H);
+  const th=getTheme(getActive()?.theme||0,darkMode),lh=lineH(),first=PAD_TOP+lh;
+  ctx.strokeStyle=th.ruleH;ctx.lineWidth=1;
+  for(let y=first;y<H;y+=lh){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
+  ctx.strokeStyle=th.ruleV;ctx.lineWidth=1.5;
+  ctx.beginPath();ctx.moveTo(46,0);ctx.lineTo(46,H);ctx.stroke();
+}
+
+/* ══════════════════ LINE NUMBERS ══════════════════ */
+function countRawLines(){const v=rawInput.value;return v===''?0:v.split('\n').length;}
+
+/* Shared: compute visual row count for each raw line.
+   Both updateLN and rebuildStrips must use exactly the same values
+   so line numbers and hover strips stay perfectly aligned. */
+function getRowCounts(rawLines) {
+  // Estimate how many characters fit on one visual row.
+  // paddingLeft=52, paddingRight=22 → usable width = clientWidth - 74.
+  // Average char width ≈ 0.52 × fontSize (Georgia is slightly narrower than monospace).
+  const usable = wrapper.clientWidth - 74;
+  const charW  = (16 * zoom / 100) * 0.52;
+  const charsPerRow = Math.max(1, Math.floor(usable / charW));
+  return rawLines.map(line => Math.max(1, Math.ceil((line.length || 1) / charsPerRow)));
+}
+
+function updateLN(){
+  if(!showLN||isReading){lnCanvas.style.display='none';return;}
+  lnCanvas.style.display='block';
+  const dpr=window.devicePixelRatio||1, W=44;
+  const H=Math.max(wrapper.clientHeight, rawInput.scrollHeight+120);
+  lnCanvas.style.width=W+'px'; lnCanvas.style.height=H+'px';
+  lnCanvas.width=Math.round(W*dpr); lnCanvas.height=Math.round(H*dpr);
+  const ctx=lnCanvas.getContext('2d'); ctx.scale(dpr,dpr); ctx.clearRect(0,0,W,H);
+  const th=getTheme(getActive()?.theme||0,darkMode);
+  const lh=lineH();
+  const rawLines = rawInput.value==='' ? [] : rawInput.value.split('\n');
+  const rowCounts = getRowCounts(rawLines);
+  const fs = Math.max(9, Math.round(11*zoom/100));
+  ctx.font=`${fs}px monospace`; ctx.fillStyle=th.muted; ctx.textAlign='right';
+  // Y starts at top of first strip; number is drawn 82% down the first row
+  let stripTop = PAD_TOP;
+  rowCounts.forEach((rows, i) => {
+    const stripH = lh * rows;
+    ctx.fillText(String(i+1), W-5, stripTop + lh*0.82);
+    stripTop += stripH;
+  });
+}
+
+/* ══════════════════ SCROLL SYNC ══════════════════ */
+function syncScroll(){
+  const t=rawInput.scrollTop;
+  ruleCanvas.style.top=(-t)+'px';
+  lnCanvas.style.top=(-t)+'px';
+  rebuildStrips();
+}
+rawInput.addEventListener('scroll',syncScroll);
+
+let paintTimer=null;
+function schedPaint(){clearTimeout(paintTimer);paintTimer=setTimeout(()=>{drawRules();updateLN();rebuildStrips();},150);}
+rawInput.addEventListener('input',schedPaint);
+new ResizeObserver(()=>{drawRules();updateLN();rebuildStrips();}).observe(wrapper);
+
+/* ══════════════════ MARGIN HOVER STRIPS ══════════════════ */
+// lockedInsertLine is set when + is clicked, so subsequent mouse moves don't shift it
+let lockedInsertLine = 0;
+let hoveredLine = 0;
+
+function rebuildStrips(){
+  hoverLayer.innerHTML='';
+  if(isReading) return;
+  const rawLines = rawInput.value==='' ? [] : rawInput.value.split('\n');
+  const rowCounts = getRowCounts(rawLines);
+  const n = rowCounts.length + 1; // +1 for extra strip below last line
+  const lh = lineH();
+  const scrollTop = rawInput.scrollTop;
+
+  let cumY = PAD_TOP; // must match updateLN's stripTop start
+  for(let i=0; i<n; i++){
+    const isExtra = (i === rawLines.length);
+    const rows    = isExtra ? 1 : rowCounts[i];
+    const stripH  = lh * rows;
+    const topPx   = cumY - scrollTop;
+    cumY += stripH;
+
+    // Only render strips visible in the viewport (+ one line buffer)
+    if(topPx + stripH < -lh || topPx > wrapper.clientHeight + lh) continue;
+
+    const strip = document.createElement('div');
+    strip.className = 'margin-strip';
+    strip.style.top    = topPx + 'px';
+    strip.style.height = stripH + 'px';
+    const lineIdx = i;
+
+    strip.addEventListener('mouseenter', ev => {
+      hoveredLine = lineIdx;
+      const wr = wrapper.getBoundingClientRect();
+      const cy = wr.top + topPx + stripH/2;
+      marginPlus.style.left = (wr.left + 4) + 'px';
+      marginPlus.style.top  = (cy - 9) + 'px';
+      marginPlus.classList.add('visible');
+    });
+    strip.addEventListener('mouseleave', ev => {
+      if(ev.relatedTarget !== marginPlus) marginPlus.classList.remove('visible');
+    });
+    strip.addEventListener('click', ev => {
+      ev.stopPropagation();
+      lockedInsertLine = lineIdx;
+      const wr = wrapper.getBoundingClientRect();
+      const cy = wr.top + topPx + stripH/2;
+      insertPopup.style.top  = (cy + 9) + 'px';
+      insertPopup.style.left = (wr.left + 26) + 'px';
+      insertPopup.classList.add('open');
+      marginPlus.classList.remove('visible');
+    });
+    hoverLayer.appendChild(strip);
+  }
+}
+
+marginPlus.addEventListener('mouseenter',()=>marginPlus.classList.add('visible'));
+marginPlus.addEventListener('mouseleave',()=>marginPlus.classList.remove('visible'));
+marginPlus.addEventListener('click',e=>{
+  e.stopPropagation();
+  lockedInsertLine=hoveredLine; // lock the line NOW
+  const r=marginPlus.getBoundingClientRect();
+  insertPopup.style.top=(r.bottom+4)+'px';
+  insertPopup.style.left=r.left+'px';
+  marginPlus.classList.remove('visible');
+  insertPopup.classList.add('open');
+});
+
+/* ══════════════════ MARKDOWN RENDERING (with image placeholder) ══════════════════ */
+// We replace base64 images in the raw text with placeholders for display in the textarea.
+// The actual markdown (with full base64) is always preserved in the tab's .raw and rawInput.value.
+// We only show placeholders in the editor gutter — the textarea shows raw markdown as-is
+// (base64 URLs are just long lines, which is acceptable).
+// For the preview, we render normally so images display.
+// The "hide base64" approach: we overlay a read-only div showing pill badges over the textarea
+// for base64 images. This is complex and fragile. Instead, we take the simpler approach:
+// in edit mode, replace ![alt](data:...) with a single placeholder line visually.
+// This requires a custom display layer — too invasive for this architecture.
+// CHOSEN APPROACH: keep textarea as-is (base64 is long but workable), and in the textarea
+// we replace long base64 data URIs with a compact token on load/display, storing the real
+// data separately. We do this by intercepting insertAtLine for local images.
+
+// Image store: maps token → real base64 data URL
+const imgStore = {};
+let imgTokenCounter = 0;
+
+function makeImgToken(alt, dataUrl) {
+  const token = `__IMG_${imgTokenCounter++}__`;
+  imgStore[token] = {alt, dataUrl};
+  return `![${alt}](${token})`;
+}
+
+function resolveImgTokens(text) {
+  // Replace tokens with real data URLs for preview/save
+  return text.replace(/!\[([^\]]*)\]\((__IMG_\d+__)\)/g, (m, alt, token) => {
+    return imgStore[token] ? `![${alt}](${imgStore[token].dataUrl})` : m;
+  });
+}
+
+function renderMarkdown(rawText) {
+  // Resolve tokens before rendering
+  return marked.parse(resolveImgTokens(rawText));
+}
+
+function getFullRaw() {
+  // Returns the full raw text with tokens resolved — used for saving
+  return resolveImgTokens(rawInput.value);
+}
+
+// When loading a tab, detect existing data: URIs and tokenize them
+function tokenizeExistingImages(text) {
+  return text.replace(/!\[([^\]]*)\]\((data:[^)]{100,})\)/g, (m, alt, dataUrl) => {
+    return makeImgToken(alt, dataUrl);
+  });
+}
+
+/* ══════════════════ INSERT AT LINE ══════════════════ */
+function insertAtLine(lineIdx, text) {
+  const val = rawInput.value;
+  const lines = val.split('\n');
+  const at = Math.min(lineIdx, lines.length);
+  const insertLines = text.split('\n');
+  lines.splice(at, 0, ...insertLines);
+  rawInput.value = lines.join('\n');
+  // Position cursor at start of inserted content
+  let pos = 0;
+  for(let i=0;i<at;i++) pos += lines[i].length + 1;
+  rawInput.selectionStart = rawInput.selectionEnd = pos;
+  rawInput.dispatchEvent(new Event('input'));
+  rawInput.focus();
+}
+
+/* ══════════════════ IMAGE INSERT ══════════════════ */
+const imgOv     = document.getElementById('img-overlay');
+const imgUrl    = document.getElementById('img-url');
+const imgAlt    = document.getElementById('img-alt');
+const imgPrev   = document.getElementById('img-preview');
+const imgDrop   = document.getElementById('img-drop');
+const imgFileIn = document.getElementById('img-file-input');
+let imgData = null; // base64 data URL for local file
+
+document.getElementById('insert-image-opt').addEventListener('click',()=>{
+  // lockedInsertLine already set when popup opened
+  insertPopup.classList.remove('open');
+  imgUrl.value='';imgAlt.value='';imgPrev.style.display='none';imgData=null;
+  imgOv.classList.add('open');
+  setTimeout(()=>imgUrl.focus(),50);
+});
+imgDrop.addEventListener('click',()=>imgFileIn.click());
+imgDrop.addEventListener('dragover',e=>{e.preventDefault();imgDrop.classList.add('drag-over');});
+imgDrop.addEventListener('dragleave',()=>imgDrop.classList.remove('drag-over'));
+imgDrop.addEventListener('drop',e=>{e.preventDefault();imgDrop.classList.remove('drag-over');const f=e.dataTransfer.files[0];if(f&&f.type.startsWith('image/'))loadImgFile(f);});
+imgFileIn.addEventListener('change',()=>{if(imgFileIn.files[0])loadImgFile(imgFileIn.files[0]);imgFileIn.value='';});
+function loadImgFile(f){
+  const rd=new FileReader();
+  rd.onload=ev=>{
+    imgData=ev.target.result;
+    imgPrev.src=imgData;imgPrev.style.display='block';imgUrl.value='';
+  };
+  rd.readAsDataURL(f);
+}
+imgUrl.addEventListener('input',()=>{imgData=null;imgPrev.style.display='none';});
+document.getElementById('img-cancel').addEventListener('click',()=>imgOv.classList.remove('open'));
+imgOv.addEventListener('click',e=>{if(e.target===imgOv)imgOv.classList.remove('open');});
+document.getElementById('img-ok').addEventListener('click',()=>{
+  const alt=imgAlt.value.trim()||'image';
+  const src=imgData||imgUrl.value.trim();
+  if(!src){imgUrl.focus();return;}
+  imgOv.classList.remove('open');
+  let mdLine;
+  if(imgData){
+    // Store base64 as token to keep textarea manageable
+    mdLine=makeImgToken(alt,imgData);
+  } else {
+    mdLine=`![${alt}](${src})`;
+  }
+  insertAtLine(lockedInsertLine, mdLine);
+});
+
+/* ══════════════════ TABLE INSERT ══════════════════ */
+const tableOv   = document.getElementById('table-overlay');
+const tableGrid = document.getElementById('table-grid');
+const tableLbl  = document.getElementById('table-size-label');
+const tCols     = document.getElementById('table-cols');
+const tRows     = document.getElementById('table-rows');
+let gC=3,gR=3;
+
+for(let r=0;r<8;r++) for(let c=0;c<8;c++){
+  const cell=document.createElement('div');
+  cell.className='tg-cell';cell.dataset.r=r;cell.dataset.c=c;
+  cell.addEventListener('mouseenter',()=>{
+    gR=r+1;gC=c+1;tCols.value=gC;tRows.value=gR;
+    tableLbl.textContent=`${gC} columns × ${gR} rows`;
+    tableGrid.querySelectorAll('.tg-cell').forEach(el=>el.classList.toggle('lit',+el.dataset.r<=r&&+el.dataset.c<=c));
+  });
+  cell.addEventListener('click',()=>doInsertTable());
+  tableGrid.appendChild(cell);
+}
+
+document.getElementById('insert-table-opt').addEventListener('click',()=>{
+  // lockedInsertLine already set when popup opened
+  insertPopup.classList.remove('open');
+  tableGrid.querySelectorAll('.tg-cell').forEach(el=>el.classList.remove('lit'));
+  tableLbl.textContent='Hover grid to pick size';
+  tCols.value=3;tRows.value=3;gC=3;gR=3;
+  tableOv.classList.add('open');
+});
+tCols.addEventListener('input',()=>gC=Math.max(1,+tCols.value||1));
+tRows.addEventListener('input',()=>gR=Math.max(1,+tRows.value||1));
+document.getElementById('table-cancel').addEventListener('click',()=>tableOv.classList.remove('open'));
+tableOv.addEventListener('click',e=>{if(e.target===tableOv)tableOv.classList.remove('open');});
+document.getElementById('table-ok').addEventListener('click',doInsertTable);
+
+function doInsertTable(){
+  const cols=Math.max(1,+tCols.value||gC), rows=Math.max(1,+tRows.value||gR);
+  const header='| '+Array.from({length:cols},(_,i)=>`Col ${i+1}`).join(' | ')+' |';
+  const sep='| '+Array.from({length:cols},()=>'---').join(' | ')+' |';
+  const dr='| '+Array.from({length:cols},()=>'   ').join(' | ')+' |';
+  const md=[header,sep,...Array.from({length:rows},()=>dr),''].join('\n');
+  tableOv.classList.remove('open');
+  insertAtLine(lockedInsertLine, md);
+}
+
+/* ══════════════════ ZOOM ══════════════════ */
+const ZS=10,ZMI=60,ZMX=200;
+function applyZoom(){
+  const fs=(16*zoom/100).toFixed(1)+'px',lh=(28*zoom/100).toFixed(1)+'px';
+  rawInput.style.fontSize=fs;rawInput.style.lineHeight=lh;
+  preview.style.fontSize=fs;preview.style.lineHeight=lh;
+  document.getElementById('zoom-label').textContent=zoom+'%';
+  drawRules();updateLN();rebuildStrips();
+}
+document.getElementById('zoom-in').addEventListener('click',()=>{if(zoom<ZMX){zoom+=ZS;applyZoom();}});
+document.getElementById('zoom-out').addEventListener('click',()=>{if(zoom>ZMI){zoom-=ZS;applyZoom();}});
+
+/* ══════════════════ STORAGE ══════════════════ */
+
+const STORAGE_FULL_KEY = 'paper_notes_storage_warn_dismissed';
+let autoSaveDisabled = false;
+
+function _lsUsedBytes() {
+  let used = 0;
+  for (const k in localStorage)
+    if (Object.prototype.hasOwnProperty.call(localStorage, k))
+      used += (localStorage[k].length + k.length) * 2;
+  return used;
+}
+
+function _lsUsedPct() {
+  return _lsUsedBytes() / (5 * 1024 * 1024);
+}
+
+function persist() {
+  const data = {
+    tabs:     tabs.map(t => ({...t, raw: resolveImgTokens(t.raw||'')})),
+    activeId, nextId, zoom, darkMode, showLN
+  };
+  // Always write darkMode separately so the pre-paint suppressor can read it
+  // even if the main save fails.
+  try { localStorage.setItem('paper_notes_darkmode', darkMode ? '1' : '0'); } catch(e) {}
+  try {
+    localStorage.setItem(SK, JSON.stringify(data));
+    // Save succeeded — re-enable autosave if it was disabled
+    if (autoSaveDisabled) {
+      autoSaveDisabled = false;
+      updateStorageIndicator();
+    } else {
+      updateStorageIndicator();
+    }
+  } catch(e) {
+    // Quota exceeded
+    if (!autoSaveDisabled) {
+      // First failure — disable and warn
+      autoSaveDisabled = true;
+      updateStorageIndicator();
+      if (localStorage.getItem(STORAGE_FULL_KEY) !== '1') {
+        showStorageFullPopup();
+      }
+    }
+    // If already disabled, stay silent — we checked, it still doesn't fit
+  }
+}
+
+function hydrate() {
+  try {
+    const d = JSON.parse(localStorage.getItem(SK));
+    if (d) {
+      tabs     = d.tabs     || [];
+      activeId = d.activeId ?? null;
+      nextId   = d.nextId   || 0;
+      zoom     = d.zoom     || 100;
+      darkMode = !!d.darkMode;
+      showLN   = !!d.showLN;
+    }
+  } catch(e) {}
+}
+
+function updateStorageIndicator() {
+  if (autoSaveDisabled) {
+    storageInd.textContent = 'Autosave disabled — storage full';
+    storageInd.className = 'storage-indicator warn';
+    return;
+  }
+  const pct = _lsUsedPct();
+  if (pct >= 0.75) {
+    storageInd.textContent = `Storage: ${Math.round(_lsUsedBytes()/1024)}KB / ~5MB`;
+    storageInd.className = 'storage-indicator warn';
+  } else {
+    storageInd.textContent = '';
+    storageInd.className = 'storage-indicator';
+  }
+}
+
+function showStorageFullPopup() {
+  document.getElementById('storage-full-overlay').classList.add('open');
+}
+document.getElementById('storage-full-ok').addEventListener('click', () => {
+  if (document.getElementById('storage-warn-dismiss').checked) {
+    localStorage.setItem(STORAGE_FULL_KEY, '1');
+  }
+  document.getElementById('storage-full-overlay').classList.remove('open');
+});
+
+/* ══════════════════ CORE ══════════════════ */
+/* ══════════════════ CORE ══════════════════ */
+function getActive(){return tabs.find(t=>t.id===activeId)||null;}
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function flushActive(){const t=getActive();if(t)t.raw=rawInput.value;}
+
+function applyShell(){
+  const has = tabs.length > 0 && activeId !== null;
+  emptyState.style.display = has ? 'none' : 'flex';
+  toolbar.classList.toggle('hidden', !has);
+  // In read mode: show preview, hide editor chrome
+  // In edit mode: show editor, hide preview
+  if (has && isReading) {
+    rawInput.style.visibility = 'hidden';
+    preview.style.display = 'block';
+    ruleBg.style.visibility = 'hidden';
+    lnCanvas.style.display = 'none';
+    hoverLayer.style.display = 'none';
+  } else if (has) {
+    rawInput.style.visibility = 'visible';
+    preview.style.display = 'none';
+    ruleBg.style.visibility = 'visible';
+    lnCanvas.style.display = showLN ? 'block' : 'none';
+    hoverLayer.style.display = 'block';
+  } else {
+    rawInput.style.visibility = 'hidden';
+    preview.style.display = 'none';
+    ruleBg.style.visibility = 'hidden';
+    lnCanvas.style.display = 'none';
+    hoverLayer.style.display = 'none';
+    wordCount.textContent = '';
+    marginPlus.classList.remove('visible');
+  }
+}
+
+function loadTab(t) {
+  activeId = t.id;
+  titleInput.value = t.title || '';
+  const tokenized = tokenizeExistingImages(t.raw || '');
+  rawInput.value = tokenized;
+  t.raw = tokenized; // keep in sync
+  // Update preview content if we are (or will be) in read mode
+  if (isReading) {
+    preview.innerHTML = renderMarkdown(tokenized);
+    setTimeout(attachHeadingAnchors, 50);
+  }
+  applyTheme(t.theme || 0); // also calls drawRules/updateLN via applyShell chain
+  updateWordCount();
+  applyShell();
+  requestAnimationFrame(() => {
+    ruleCanvas.style.top = '0px';
+    lnCanvas.style.top   = '0px';
+    if (!isReading) { drawRules(); updateLN(); rebuildStrips(); }
+  });
+}
+
+function tabColors(t){const th=THEMES[t.theme||0];return`background:${th.tab};color:${th.ink};border-color:${th.tabBorder};`+(t.id===activeId?'':'filter:brightness(0.92) saturate(0.8);');}
+
+function renderTabs(){
+  tabsBar.innerHTML='';
+  tabs.forEach(t=>{
+    const el=document.createElement('div');
+    el.className='tab'+(t.id===activeId?' active':'');
+    el.setAttribute('style',tabColors(t));
+    el.innerHTML=`<span class="tab-label">${esc(t.title||'Untitled')}</span><span class="x" data-id="${t.id}">✕</span>`;
+    el.addEventListener('click',e=>{if(e.target.classList.contains('x')){closeTab(+e.target.dataset.id);return;}switchTab(t.id);});
+    tabsBar.appendChild(el);
+  });
+  tabsBar.appendChild(newTabBtn);
+}
+
+function switchTab(id){
+  if(id===activeId)return;
+  flushActive();
+  loadTab(tabs.find(t=>t.id===id));
+  renderTabs();persist();
+}
+
+function newTab(title,raw){
+  flushActive();
+  const th=getActive()?.theme||0;
+  const t={id:nextId++,title:title||'Untitled',raw:raw||'',theme:th};
+  tabs.push(t);
+  if(isReading) setMode(false); // always open new tab in edit mode
+  loadTab(t);renderTabs();persist();
+  if(!title)titleInput.focus();else rawInput.focus();
+}
+
+function closeTab(id){
+  const idx=tabs.findIndex(t=>t.id===id);if(idx===-1)return;
+  if(id===activeId){
+    flushActive();tabs.splice(idx,1);
+    if(!tabs.length){activeId=null;rawInput.value='';preview.innerHTML='';applyShell();}
+    else loadTab(tabs[Math.min(idx,tabs.length-1)]);
+  }else tabs.splice(idx,1);
+  renderTabs();
+  persist();
+}
+
+function setMode(reading) {
+  isReading = reading;
+  modeToggle.textContent = reading ? 'Edit' : 'Read';
+  modeToggle.classList.toggle('reading', reading);
+  if (reading) {
+    flushActive();
+    preview.innerHTML = renderMarkdown(rawInput.value || '');
+    setTimeout(attachHeadingAnchors, 50);
+  } else {
+    marginPlus.classList.remove('visible');
+  }
+  applyShell();
+  if (!reading && tabs.length) {
+    drawRules(); updateLN(); rebuildStrips(); rawInput.focus();
+  }
+}
+modeToggle.addEventListener('click',()=>setMode(!isReading));
+
+/* Heading anchors for TOC links in Read mode */
+function attachHeadingAnchors(){
+  preview.querySelectorAll('h1,h2,h3,h4,h5,h6').forEach(h=>{
+    const id=h.textContent.trim().toLowerCase().replace(/[^\w\s-]/g,'').replace(/\s+/g,'-');
+    h.id=id;
+  });
+  preview.querySelectorAll('a[href^="#"]').forEach(a=>{
+    a.addEventListener('click',e=>{
+      e.preventDefault();
+      const target=preview.querySelector(a.getAttribute('href'));
+      if(target) target.scrollIntoView({behavior:'smooth',block:'start'});
+    });
+  });
+}
+
+/* ══════════════════ INPUT ══════════════════ */
+let saveTimer=null;
+rawInput.addEventListener('input',()=>{
+  const t=getActive();if(t)t.raw=rawInput.value;
+  updateWordCount();
+  clearTimeout(saveTimer);saveTimer=setTimeout(()=>{persist();flash('auto-saved');},1500);
+});
+rawInput.addEventListener('keydown',e=>{
+  if(e.key==='Tab'){
+    e.preventDefault();
+    const s=rawInput.selectionStart,end=rawInput.selectionEnd;
+    rawInput.value=rawInput.value.substring(0,s)+'  '+rawInput.value.substring(end);
+    rawInput.selectionStart=rawInput.selectionEnd=s+2;
+    rawInput.dispatchEvent(new Event('input'));
+  }
+  // Ctrl/Cmd+C or Ctrl/Cmd+X with no selection → copy/cut the whole line
+  if((e.ctrlKey||e.metaKey)&&(e.key==='c'||e.key==='x')&&rawInput.selectionStart===rawInput.selectionEnd){
+    e.preventDefault();
+    const val=rawInput.value;
+    const pos=rawInput.selectionStart;
+    // Find start and end of current line
+    const lineStart=val.lastIndexOf('\n',pos-1)+1;
+    const lineEnd=val.indexOf('\n',pos);
+    const isLast=lineEnd===-1;
+    const lineText=isLast?val.slice(lineStart):val.slice(lineStart,lineEnd);
+    navigator.clipboard.writeText(lineText+'\n').catch(()=>{});
+    if(e.key==='x'){
+      // Remove the line including its newline, keep cursor at lineStart
+      if(isLast){
+        // Last line: remove trailing newline before it too (if any), or just clear line
+        rawInput.value=val.slice(0,lineStart>0?lineStart-1:0);
+      } else {
+        rawInput.value=val.slice(0,lineStart)+val.slice(lineEnd+1);
+      }
+      rawInput.selectionStart=rawInput.selectionEnd=lineStart>val.length?val.length:lineStart;
+      rawInput.dispatchEvent(new Event('input'));
+    }
+  }
+});
+
+function updateWordCount(){const w=(rawInput.value.trim().match(/\S+/g)||[]).length;wordCount.textContent=w+' word'+(w!==1?'s':'');}
+function flash(msg){saveHint.textContent=msg;setTimeout(()=>saveHint.textContent='',2500);}
+
+titleInput.addEventListener('input',()=>{const t=getActive();if(t)t.title=titleInput.value||'Untitled';renderTabs();clearTimeout(saveTimer);saveTimer=setTimeout(persist,800);});
+newTabBtn.addEventListener('click',()=>newTab());
+document.getElementById('empty-new').addEventListener('click',()=>newTab());
+document.getElementById('empty-load').addEventListener('click',()=>fileInput.click());
+document.getElementById('load-btn').addEventListener('click',()=>fileInput.click());
+fileInput.addEventListener('change',()=>{
+  const f=fileInput.files[0];if(!f)return;
+  const r=new FileReader();
+  r.onload=e=>{newTab(f.name.replace(/\.(md|txt)$/,''),e.target.result);flash('loaded!');};
+  r.readAsText(f);fileInput.value='';
+});
+
+document.getElementById('save-btn').addEventListener('click',async()=>{
+  flushActive();const t=getActive();if(!t)return;
+  const content=getFullRaw(); // save with real data URLs
+  const fn=(t.title||'note')+'.md';
+  if(hasFSA){
+    try{
+      const fh=await window.showSaveFilePicker({suggestedName:fn,types:[{description:'Markdown',accept:{'text/markdown':['.md']}},{description:'Plain text',accept:{'text/plain':['.txt']}}]});
+      const w=await fh.createWritable();await w.write(content);await w.close();flash('saved!');
+    }catch(e){if(e.name!=='AbortError')fallback(fn,content);}
+  }else fallback(fn,content);
+});
+function fallback(fn,c){const b=new Blob([c],{type:'text/plain'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=fn;a.click();URL.revokeObjectURL(a.href);flash('downloaded!');}
+
+/* ══════════════════ BOOT ══════════════════ */
+hydrate();
+// On first ever visit (no saved state), respect the OS dark-mode preference.
+// Once the user has interacted with the toggle, their choice is stored and
+// this branch is never reached again.
+if (!localStorage.getItem(SK) && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+  darkMode = true;
+}
+dmToggle.classList.toggle('on', darkMode);
+lnToggle.classList.toggle('on', showLN);
+applyZoom();
+renderTabs();
+if (tabs.length > 0 && activeId !== null && getActive()) loadTab(getActive());
+else { activeId = null; tabs = []; applyShell(); renderTabs(); applyTheme(0); }
+updateStorageIndicator();
+
+</script>
+</body>
+</html>
